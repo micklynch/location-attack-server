@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import cors from "cors";
 import firebase, { database } from "firebase/app";
 import crypto, { async } from "crypto-random-string";
@@ -57,31 +57,29 @@ app.post("/login", async (req, res) => {
   await limiter.rejectOnQuotaExceededOrRecordUsage(); // will throw HttpsException with proper warnin
   const userDetails: UserDetails = req.body;
   var ip = req.header("x-forwarded-for") || req.connection.remoteAddress;
-  try {
-    const userObj = await firebase
-      .auth()
-      .signInWithEmailAndPassword(userDetails.username, userDetails.password);
-    if (userObj) {
-      let newLoc = await isNewLocation(userObj.user.uid, ip);
-
-      if (newLoc) {
-        const token = crypto({ length: 32 });
-        await storeTokenForUser(userObj.user.uid, ip, token);
-
-        res.status(200).send({
-          emailToken: token,
-        });
-      } else {
-        res.status(200).send(userObj.user);
-      }
-    }
-  } catch (error) {
-    console.log(error.code);
-    res.status(404).send({ error: "User not found" });
-  }
+  await firebase
+    .auth()
+    .signInWithEmailAndPassword(userDetails.username, userDetails.password)
+    .then(function (userObj) {
+      isNewLocation(userObj.user.uid, ip).then(function (isNew) {
+        if (isNew) {
+          const token = crypto({ length: 32 });
+          storeTokenForUser(userObj.user.uid, ip, token).then(function () {
+            res.statusMessage = token;
+            res.status(400).end();
+          });
+        } else {
+          res.status(200).send(userObj.user.email);
+        }
+      });
+    })
+    .catch(function (error) {
+      console.log(error);
+      res.status(404).send({ error: "User not found" });
+    });
 });
 
-app.post("/verifyLocation", async (req, res) => {
+app.get("/verifyLocation", async (req, res) => {
   const token = req.query.token;
   let userId = "";
   let newIpAddress = "";
@@ -91,11 +89,10 @@ app.post("/verifyLocation", async (req, res) => {
     .get();
   if (querySnapshot.empty) {
     console.log("Error");
-    res.status(404).send({ error: "Link no longer valid" });
+    res.status(400).send({ error: "Link no longer valid" });
   }
 
   querySnapshot.forEach((doc) => {
-    console.log(`Found token for user ${doc.data().token}`);
     userId = doc.id;
     newIpAddress = doc.data().tokenLocation;
     const docRef = db.collection("userLocations").doc(userId);
