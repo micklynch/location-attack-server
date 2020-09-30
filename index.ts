@@ -24,7 +24,6 @@ const limiter = FirebaseFunctionsRateLimiter.withFirestoreBackend(
 type UserDetails = {
   username: string;
   password: string;
-  ipAddress: string;
 };
 
 const PORT = process.env.PORT || 3000;
@@ -34,30 +33,35 @@ app.use(bodyParser.json());
 
 app.get("/", async (req, res) => {
   await limiter.rejectOnQuotaExceededOrRecordUsage(); // will throw HttpsException with proper warning
-  res.send(req.url);
+  var ip = req.header("x-forwarded-for") || req.connection.remoteAddress;
+  res.send(req.ip);
 });
 
 app.post("/login", async (req, res) => {
   await limiter.rejectOnQuotaExceededOrRecordUsage(); // will throw HttpsException with proper warnin
   const userDetails: UserDetails = req.body;
+  var ip = req.header("x-forwarded-for") || req.connection.remoteAddress;
   try {
     const userObj = await firebase
       .auth()
       .signInWithEmailAndPassword(userDetails.username, userDetails.password);
-    let newLoc = await isNewLocation(userObj.user.uid, userDetails.ipAddress);
+    if (userObj) {
+      let newLoc = await isNewLocation(userObj.user.uid, ip);
 
-    if (newLoc) {
-      const token = crypto({ length: 16 });
-      await storeTokenForUser(userObj.user.uid, userDetails.ipAddress, token);
+      if (newLoc) {
+        const token = crypto({ length: 32 });
+        await storeTokenForUser(userObj.user.uid, ip, token);
 
-      res.send({
-        emailToken: token,
-      });
-    } else {
-      res.send(userObj.user);
+        res.send({
+          emailToken: token,
+        });
+      } else {
+        res.send(userObj.user);
+      }
     }
   } catch (error) {
-    res.send({ error: "Something went wrong" });
+    console.log(error.code);
+    res.send({ error: "User not found" });
   }
 });
 
@@ -65,32 +69,38 @@ app.post("/verifyLocation", async (req, res) => {
   const token = req.query.token;
   let userId = "";
   let newIpAddress = "";
-  // Get a new write batch
-  var batch = db.batch();
-  const snapshot = await db.collection("userLocations").get();
-  snapshot.forEach((doc) => {
-    if (doc.data().token === token) {
-      userId = doc.id;
-      newIpAddress = doc.data().tokenLocation;
-      console.log(`UserID is ${userId}`);
-    } else {
-      res.status(500).send({ error: "Link no longer valid" });
-    }
+  const querySnapshot = await db
+    .collection("userLocations")
+    .where("token", "==", token)
+    .get();
+  if (querySnapshot.empty) {
+    console.log("Error");
+    res.status(404).send({ error: "Link no longer valid" });
+  }
+
+  querySnapshot.forEach((doc) => {
+    console.log(`Found token for user ${doc.data().token}`);
+    userId = doc.id;
+    newIpAddress = doc.data().tokenLocation;
+    const docRef = db.collection("userLocations").doc(userId);
+    // Get a new write batch
+    var batch = db.batch();
+    batch.update(docRef, {
+      locationHistory: firebase.firestore.FieldValue.arrayUnion(newIpAddress),
+    });
+    batch.set(
+      docRef,
+      {
+        token: firebase.firestore.FieldValue.delete(),
+        tokenLocation: firebase.firestore.FieldValue.delete(),
+      },
+      { merge: true }
+    );
+    let result = batch.commit();
+    res.status(200).send({
+      message: "success",
+    });
   });
-  const docRef = db.collection("userLocations").doc(userId);
-  batch.update(docRef, {
-    locationHistory: firebase.firestore.FieldValue.arrayUnion(newIpAddress),
-  });
-  batch.set(
-    docRef,
-    {
-      token: firebase.firestore.FieldValue.delete(),
-      tokenLocation: firebase.firestore.FieldValue.delete(),
-    },
-    { merge: true }
-  );
-  let result = await batch.commit();
-  res.send(result);
 });
 
 app.listen(PORT, () => {
@@ -105,9 +115,7 @@ const isNewLocation = async function (
   const doc = await docRef.get();
   if (doc.exists) {
     var { locationHistory } = doc.data();
-    console.log(locationHistory);
     if (locationHistory.includes(ipLocation)) {
-      console.log("User has this location in their history");
       return false;
     }
   }
