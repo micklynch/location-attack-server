@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import firebase, { database } from "firebase/app";
 import crypto, { async } from "crypto-random-string";
 import "firebase/auth";
@@ -21,6 +22,20 @@ const limiter = FirebaseFunctionsRateLimiter.withFirestoreBackend(
   db
 );
 
+//options for cors midddleware
+const options: cors.CorsOptions = {
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "X-Access-Token",
+  ],
+  credentials: true,
+  methods: "GET,HEAD,OPTIONS,PUT,PATCH,POST,DELETE",
+  preflightContinue: false,
+};
+
 type UserDetails = {
   username: string;
   password: string;
@@ -30,6 +45,7 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 
 app.use(bodyParser.json());
+app.use(cors(options));
 
 app.get("/", async (req, res) => {
   await limiter.rejectOnQuotaExceededOrRecordUsage(); // will throw HttpsException with proper warning
@@ -52,16 +68,16 @@ app.post("/login", async (req, res) => {
         const token = crypto({ length: 32 });
         await storeTokenForUser(userObj.user.uid, ip, token);
 
-        res.send({
+        res.status(200).send({
           emailToken: token,
         });
       } else {
-        res.send(userObj.user);
+        res.status(200).send(userObj.user);
       }
     }
   } catch (error) {
     console.log(error.code);
-    res.send({ error: "User not found" });
+    res.status(404).send({ error: "User not found" });
   }
 });
 
