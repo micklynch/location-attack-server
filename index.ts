@@ -22,20 +22,6 @@ const limiter = FirebaseFunctionsRateLimiter.withFirestoreBackend(
   db
 );
 
-//options for cors midddleware
-const options: cors.CorsOptions = {
-  allowedHeaders: [
-    "Origin",
-    "X-Requested-With",
-    "Content-Type",
-    "Accept",
-    "X-Access-Token",
-  ],
-  credentials: true,
-  methods: "GET,HEAD,OPTIONS,PUT,PATCH,POST,DELETE",
-  preflightContinue: false,
-};
-
 type UserDetails = {
   username: string;
   password: string;
@@ -44,34 +30,41 @@ type UserDetails = {
 const PORT = process.env.PORT || 3000;
 const app = express();
 
+app.use(cors());
 app.use(bodyParser.json());
-app.use(cors(options));
 
 app.get("/", async (req, res) => {
   await limiter.rejectOnQuotaExceededOrRecordUsage(); // will throw HttpsException with proper warning
-  var ip = req.header("x-forwarded-for") || req.connection.remoteAddress;
   res.send(req.ip);
 });
 
 app.post("/login", async (req, res) => {
   await limiter.rejectOnQuotaExceededOrRecordUsage(); // will throw HttpsException with proper warnin
-  const userDetails: UserDetails = req.body;
   var ip = req.header("x-forwarded-for") || req.connection.remoteAddress;
-  await firebase
+  const userDetails: UserDetails = req.body;
+  firebase
     .auth()
     .signInWithEmailAndPassword(userDetails.username, userDetails.password)
     .then(function (userObj) {
-      isNewLocation(userObj.user.uid, ip).then(function (isNew) {
-        if (isNew) {
-          const token = crypto({ length: 32 });
-          storeTokenForUser(userObj.user.uid, ip, token).then(function () {
-            res.statusMessage = token;
-            res.status(400).end();
-          });
-        } else {
-          res.status(200).send(userObj.user.email);
-        }
-      });
+      isNewLocation(userObj.user.uid, ip)
+        .then(function (isNew) {
+          if (isNew) {
+            const token = crypto({ length: 32 });
+            storeTokenForUser(userObj.user.uid, ip, token)
+              .then(function () {
+                res.statusMessage = token;
+                res.status(400).end();
+              })
+              .catch(function (error) {
+                console.log(error);
+              });
+          } else {
+            res.status(200).send(userObj.user.email);
+          }
+        })
+        .catch(function (error) {
+          console.log(error);
+        });
     })
     .catch(function (error) {
       console.log(error);
