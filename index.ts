@@ -52,8 +52,10 @@ app.post("/login", async (req, res) => {
             const token = crypto({ length: 32 });
             storeTokenForUser(userObj.user.uid, ip, token)
               .then(function () {
-                res.statusMessage = token;
-                res.status(400).end();
+                emailLinkToUse(userObj.user.email, token).then(function () {
+                  res.statusMessage = token;
+                  res.status(400).end();
+                });
               })
               .catch(function (error) {
                 console.log(error);
@@ -142,4 +144,13 @@ const storeTokenForUser = async function (
     { merge: true }
   );
   return;
+};
+
+const emailLinkToUse = async function (userEmail, token) {
+  //
+  // Send an email to the user with the token in the format:
+  // https://yourserveraddress.com/?token={token}
+  //
+  console.log(`Sending email to user ${userEmail} with token=${token}`);
+  return true;
 };
