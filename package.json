@@ -21,11 +21,10 @@
     "@types/node": "^14.11.2",
     "body-parser": "^1.19.0",
     "cors": "^2.8.5",
-    "crypto-random-string": "^3.3.0",
     "dotenv": "^8.2.0",
     "express": "^4.17.1",
     "fastify": "^3.4.1",
-    "firebase": "^7.21.1",
+    "firebase": "^7.22.1",
     "firebase-functions-rate-limiter": "^3.7.0"
   }
 }
