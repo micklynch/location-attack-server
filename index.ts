@@ -6,6 +6,9 @@ import "firebase/firestore";
 import bodyParser from "body-parser";
 import firebaseConfig from "./config/default";
 import { FirebaseFunctionsRateLimiter } from "firebase-functions-rate-limiter";
+import Analytics from "analytics-node";
+
+const client = new Analytics(process.env.SEGMENTIO);
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
@@ -68,6 +71,10 @@ app.post("/login", async (req, res) => {
         });
       } else {
         // Send whatever information you want back to the client (in my case, just the email)
+        client.track({
+          event: "Server Side Login",
+          userId: userObj.user.uid,
+        });
         res.status(200).send(userObj.user.email);
       }
     }
